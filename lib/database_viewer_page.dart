@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 
 class DatabaseViewerPage extends StatefulWidget {
   const DatabaseViewerPage({super.key});
@@ -37,9 +37,13 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
     Map<String, int> counts = {};
     for (String table in _tables) {
       try {
-        // Use count() aggregation to efficiently get document count without fetching all data
-        var snapshot = await FirebaseFirestore.instance.collection(table).count().get();
-        counts[table] = snapshot.count ?? 0;
+        final db = await DatabaseHelper.instance.database;
+        var snapshot = await db.query('SELECT COUNT(*) as count FROM $table');
+        if (snapshot.isNotEmpty) {
+          counts[table] = int.tryParse(snapshot.first['count'].toString()) ?? 0;
+        } else {
+          counts[table] = 0;
+        }
       } catch (e) {
         counts[table] = 0;
       }
@@ -60,12 +64,14 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
     });
 
     try {
-      var snapshot = await FirebaseFirestore.instance.collection(table).limit(100).get(); // Limit to 100 for safety
-      List<Map<String, dynamic>> data = snapshot.docs.map((doc) {
-        var map = doc.data();
-        map['document_id'] = doc.id; // Inject the doc ID as a column
-        return map;
-      }).toList();
+      final db = await DatabaseHelper.instance.database;
+      var snapshot = await db.query('SELECT * FROM $table LIMIT 100'); // Limit to 100 for safety
+      List<Map<String, dynamic>> data = [];
+      for (var row in snapshot) {
+        Map<String, dynamic> map = {};
+        row.fields.forEach((k, v) => map[k] = v?.toString() ?? '');
+        data.add(map);
+      }
 
       if (mounted) {
         setState(() {
@@ -106,7 +112,7 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Text("Firebase Database Inspector"),
+        title: const Text("MySQL Database Inspector"),
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
@@ -185,9 +191,6 @@ class _DatabaseViewerPageState extends State<DatabaseViewerPage> {
                                         var val = row[col];
                                         // Handle nested objects or timestamps gracefully
                                         String displayVal = val?.toString() ?? 'null';
-                                        if (val is Timestamp) {
-                                          displayVal = val.toDate().toString();
-                                        }
                                         return DataCell(Text(displayVal));
                                       }).toList(),
                                     );

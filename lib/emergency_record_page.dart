@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'theme.dart';
 
 class EmergencyRecordPage extends StatefulWidget {
@@ -26,28 +26,26 @@ class _EmergencyRecordPageState extends State<EmergencyRecordPage> {
     });
 
     try {
-      // Search by register number or phone number
-      final snapshot = await FirebaseFirestore.instance
-          .collection('patients')
-          .where('regNo', isEqualTo: query)
-          .limit(1)
-          .get();
+      final db = await DatabaseHelper.instance.database;
+      
+      // Search by register number
+      final regSnapshot = await db.query('SELECT * FROM patients WHERE regNo = ? LIMIT 1', [query]);
 
-      if (snapshot.docs.isNotEmpty) {
+      if (regSnapshot.isNotEmpty) {
+        Map<String, dynamic> data = {};
+        regSnapshot.first.fields.forEach((k, v) => data[k] = v?.toString() ?? '');
         setState(() {
-          _patientData = snapshot.docs.first.data();
+          _patientData = data;
         });
       } else {
         // Fallback: search by phone number
-        final phoneSnapshot = await FirebaseFirestore.instance
-            .collection('patients')
-            .where('mobile', isEqualTo: query)
-            .limit(1)
-            .get();
+        final phoneSnapshot = await db.query('SELECT * FROM patients WHERE mobile = ? LIMIT 1', [query]);
 
-        if (phoneSnapshot.docs.isNotEmpty) {
+        if (phoneSnapshot.isNotEmpty) {
+          Map<String, dynamic> data = {};
+          phoneSnapshot.first.fields.forEach((k, v) => data[k] = v?.toString() ?? '');
           setState(() {
-            _patientData = phoneSnapshot.docs.first.data();
+            _patientData = data;
           });
         } else {
           setState(() {

@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'dashboard_page.dart';
 
-class UsersManagementPage extends StatelessWidget {
+class UsersManagementPage extends StatefulWidget {
   const UsersManagementPage({super.key});
+
+  @override
+  State<UsersManagementPage> createState() => _UsersManagementPageState();
+}
+
+class _UsersManagementPageState extends State<UsersManagementPage> {
 
   @override
   Widget build(BuildContext context) {
@@ -22,23 +28,32 @@ class UsersManagementPage extends StatelessWidget {
         ),
       ),
       drawer: const AdminDrawer(currentPage: "users"),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('users').snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: DatabaseHelper.instance.database.then((db) async {
+          final results = await db.query('SELECT * FROM users ORDER BY createdAt DESC');
+          List<Map<String, dynamic>> items = [];
+          for (var row in results) {
+            Map<String, dynamic> item = {};
+            row.fields.forEach((k, v) => item[k] = v?.toString() ?? '');
+            items.add(item);
+          }
+          return items;
+        }),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text("No users found.", style: TextStyle(color: Color(0xFF64748B), fontSize: 16)));
           }
 
-          var users = snapshot.data!.docs;
+          var users = snapshot.data!;
 
           return ListView.builder(
             itemCount: users.length,
             padding: const EdgeInsets.all(24),
             itemBuilder: (context, index) {
-              var data = users[index].data() as Map<String, dynamic>;
+              var data = users[index];
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
@@ -72,8 +87,10 @@ class UsersManagementPage extends StatelessWidget {
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                    onPressed: () {
-                      FirebaseFirestore.instance.collection('users').doc(users[index].id).delete();
+                    onPressed: () async {
+                      final db = await DatabaseHelper.instance.database;
+                      await db.query('DELETE FROM users WHERE id = ?', [data['id']]);
+                      setState(() {});
                     },
                   ),
                 ),

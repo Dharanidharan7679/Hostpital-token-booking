@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'dashboard_page.dart';
 
 class ReportsPage extends StatefulWidget {
@@ -37,20 +37,27 @@ class _ReportsPageState extends State<ReportsPage> {
     setState(() => _isSubmitting = true);
 
     try {
-      await FirebaseFirestore.instance.collection('patient_reports').add({
-        'regNo': regNo,
-        'reportType': _selectedReportType,
-        'notes': notes,
-        'createdAt': Timestamp.now(),
-      });
+      final db = await DatabaseHelper.instance.database;
+      final createdAt = DateTime.now().toIso8601String();
+
+      final reportId = DateTime.now().millisecondsSinceEpoch.toString();
+      await db.query(
+        'INSERT INTO patient_reports (id, regNo, reportType, notes, createdAt) VALUES (?, ?, ?, ?, ?)',
+        [reportId, regNo, _selectedReportType, notes, createdAt]
+      );
 
       // Add a notification for the patient
-      await FirebaseFirestore.instance.collection('notifications').add({
-        'title': 'New Medical Report',
-        'message': 'A new $_selectedReportType has been added to your profile (Reg No: $regNo).',
-        'patientRegNo': regNo,
-        'createdAt': Timestamp.now(),
-      });
+      final notifId = DateTime.now().millisecondsSinceEpoch.toString() + "1";
+      await db.query(
+        'INSERT INTO notifications (id, title, message, patientRegNo, createdAt) VALUES (?, ?, ?, ?, ?)',
+        [
+          notifId,
+          'New Medical Report',
+          'A new $_selectedReportType has been added to your profile (Reg No: $regNo).',
+          regNo,
+          createdAt
+        ]
+      );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'dashboard_page.dart';
 import 'theme.dart';
 
@@ -17,9 +17,14 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
     final mobile = tokenData['mobile'];
     final age = tokenData['age'];
 
-    // Try to fetch existing patient profile from 'patients' collection
-    var patientDoc = await FirebaseFirestore.instance.collection('patients').doc(regNo).get();
-    Map<String, dynamic> patientData = patientDoc.exists ? patientDoc.data()! : {};
+    final db = await DatabaseHelper.instance.database;
+
+    // Try to fetch existing patient profile from 'patients' table
+    final patientDoc = await db.query('SELECT * FROM patients WHERE regNo = ?', [regNo]);
+    Map<String, dynamic> patientData = {};
+    if (patientDoc.isNotEmpty) {
+      patientDoc.first.fields.forEach((k, v) => patientData[k] = v?.toString() ?? '');
+    }
 
     final bloodGroupController = TextEditingController(text: patientData['bloodGroup'] ?? '');
     final surgeriesController = TextEditingController(text: patientData['pastSurgeries'] ?? '');
@@ -54,16 +59,18 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
           ),
           ElevatedButton(
             onPressed: () async {
-              await FirebaseFirestore.instance.collection('patients').doc(regNo).set({
-                'name': name,
-                'regNo': regNo,
-                'mobile': mobile,
-                'age': age,
-                'bloodGroup': bloodGroupController.text.trim(),
-                'pastSurgeries': surgeriesController.text.trim(),
-                'allergies': allergiesController.text.trim(),
-                'lastUpdated': Timestamp.now(),
-              }, SetOptions(merge: true));
+              final existingPatient = await db.query('SELECT regNo FROM patients WHERE regNo = ?', [regNo]);
+              if (existingPatient.isNotEmpty) {
+                await db.query(
+                  'UPDATE patients SET name = ?, mobile = ?, age = ?, bloodGroup = ?, pastSurgeries = ?, allergies = ? WHERE regNo = ?',
+                  [name, mobile, age, bloodGroupController.text.trim(), surgeriesController.text.trim(), allergiesController.text.trim(), regNo]
+                );
+              } else {
+                await db.query(
+                  'INSERT INTO patients (regNo, name, mobile, age, bloodGroup, pastSurgeries, allergies) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                  [regNo, name, mobile, age, bloodGroupController.text.trim(), surgeriesController.text.trim(), allergiesController.text.trim()]
+                );
+              }
               
               if (ctx.mounted) {
                 Navigator.pop(ctx);
@@ -114,23 +121,32 @@ class _PatientManagementPageState extends State<PatientManagementPage> {
         ),
       ),
       drawer: const AdminDrawer(currentPage: "patients"),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('tokens').snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: DatabaseHelper.instance.database.then((db) async {
+          final results = await db.query('SELECT * FROM tokens ORDER BY bookedDate DESC');
+          List<Map<String, dynamic>> items = [];
+          for (var row in results) {
+            Map<String, dynamic> item = {};
+            row.fields.forEach((k, v) => item[k] = v?.toString() ?? '');
+            items.add(item);
+          }
+          return items;
+        }),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB)));
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text("No patients found.", style: TextStyle(color: Color(0xFF64748B), fontSize: 16)));
           }
 
-          final docs = snapshot.data!.docs;
+          final docs = snapshot.data!;
 
           return ListView.builder(
             itemCount: docs.length,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             itemBuilder: (context, index) {
-              final data = docs[index].data() as Map<String, dynamic>;
+              final data = docs[index];
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(

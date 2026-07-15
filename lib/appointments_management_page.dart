@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'package:intl/intl.dart';
 import 'dashboard_page.dart';
 
-class AppointmentsManagementPage extends StatelessWidget {
+class AppointmentsManagementPage extends StatefulWidget {
   const AppointmentsManagementPage({super.key});
+
+  @override
+  State<AppointmentsManagementPage> createState() => _AppointmentsManagementPageState();
+}
+
+class _AppointmentsManagementPageState extends State<AppointmentsManagementPage> {
 
   @override
   Widget build(BuildContext context) {
@@ -23,28 +29,41 @@ class AppointmentsManagementPage extends StatelessWidget {
         ),
       ),
       drawer: const AdminDrawer(currentPage: "appointments"),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('appointments').snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: DatabaseHelper.instance.database.then((db) async {
+          final results = await db.query('SELECT * FROM appointments ORDER BY createdAt DESC');
+          List<Map<String, dynamic>> items = [];
+          for (var row in results) {
+            Map<String, dynamic> item = {};
+            row.fields.forEach((k, v) => item[k] = v?.toString() ?? '');
+            items.add(item);
+          }
+          return items;
+        }),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text("No upcoming appointments.", style: TextStyle(color: Color(0xFF64748B), fontSize: 16)));
           }
 
-          var appointments = snapshot.data!.docs;
+          var appointments = snapshot.data!;
 
           return ListView.builder(
             itemCount: appointments.length,
             padding: const EdgeInsets.all(24),
             itemBuilder: (context, index) {
-              var data = appointments[index].data() as Map<String, dynamic>;
+              var data = appointments[index];
               
               // Handle potential null or missing bookedDate safely
               DateTime date = DateTime.now();
-              if (data['bookedDate'] != null && data['bookedDate'] is Timestamp) {
-                date = (data['bookedDate'] as Timestamp).toDate();
+              if (data['bookedDate'] != null && data['bookedDate'].toString().isNotEmpty) {
+                try {
+                  date = DateTime.parse(data['bookedDate']);
+                } catch (e) {
+                  // Ignore
+                }
               }
               String formattedDate = DateFormat('MMM dd, yyyy').format(date);
               
@@ -82,8 +101,10 @@ class AppointmentsManagementPage extends StatelessWidget {
                   isThreeLine: true,
                   trailing: IconButton(
                     icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent),
-                    onPressed: () {
-                      FirebaseFirestore.instance.collection('appointments').doc(appointments[index].id).delete();
+                    onPressed: () async {
+                      final db = await DatabaseHelper.instance.database;
+                      await db.query('DELETE FROM appointments WHERE id = ?', [data['id']]);
+                      setState(() {});
                     },
                   ),
                 ),

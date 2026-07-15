@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'dashboard_page.dart';
 
-class QueueManagementPage extends StatelessWidget {
+class QueueManagementPage extends StatefulWidget {
   const QueueManagementPage({super.key});
+
+  @override
+  State<QueueManagementPage> createState() => _QueueManagementPageState();
+}
+
+class _QueueManagementPageState extends State<QueueManagementPage> {
 
   @override
   Widget build(BuildContext context) {
@@ -26,29 +32,36 @@ class QueueManagementPage extends StatelessWidget {
         ),
       ),
       drawer: const AdminDrawer(currentPage: "queue"),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('tokens')
-            .where('bookedDate', isGreaterThanOrEqualTo: startOfDay)
-            .where('bookedDate', isLessThan: endOfDay)
-            .where('bookedDate', isLessThan: endOfDay)
-            .snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: DatabaseHelper.instance.database.then((db) async {
+          final results = await db.query(
+            'SELECT * FROM tokens WHERE bookedDate >= ? AND bookedDate < ? ORDER BY tokenNumber ASC',
+            [startOfDay.toIso8601String(), endOfDay.toIso8601String()]
+          );
+          List<Map<String, dynamic>> items = [];
+          for (var row in results) {
+            Map<String, dynamic> item = {};
+            row.fields.forEach((k, v) => item[k] = v?.toString() ?? '');
+            items.add(item);
+          }
+          return items;
+        }),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text("No tokens booked for today.", style: TextStyle(color: Color(0xFF64748B), fontSize: 16)));
           }
 
-          var tokens = snapshot.data!.docs;
+          var tokens = snapshot.data!;
 
           return ListView.builder(
             itemCount: tokens.length,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             itemBuilder: (context, index) {
-              var data = tokens[index].data() as Map<String, dynamic>;
-              String status = data['status'] ?? "Waiting";
+              var data = tokens[index];
+              String status = data['status'] != null && data['status'].toString().isNotEmpty ? data['status'] : "Waiting";
 
               Color statusColor;
               Color bgColor;
@@ -113,8 +126,10 @@ class QueueManagementPage extends StatelessWidget {
                   ),
                   trailing: PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert, color: Color(0xFF64748B)),
-                    onSelected: (newStatus) {
-                      FirebaseFirestore.instance.collection('tokens').doc(tokens[index].id).update({'status': newStatus});
+                    onSelected: (newStatus) async {
+                      final db = await DatabaseHelper.instance.database;
+                      await db.query('UPDATE tokens SET status = ? WHERE id = ?', [newStatus, data['id']]);
+                      setState(() {});
                     },
                     itemBuilder: (context) => [
                       const PopupMenuItem(value: "Waiting", child: Text("Waiting")),
