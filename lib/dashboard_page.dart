@@ -8,7 +8,7 @@ import 'emergency_record_page.dart';
 import 'users_management_page.dart';
 import 'database_viewer_page.dart';
 import 'appointments_management_page.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
@@ -69,22 +69,31 @@ class DashboardPage extends StatelessWidget {
           content: SizedBox(
             width: double.maxFinite,
             height: 400,
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('notifications').snapshots(),
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: DatabaseHelper.instance.database.then((db) async {
+                final results = await db.query('SELECT * FROM notifications ORDER BY createdAt DESC');
+                List<Map<String, dynamic>> notifs = [];
+                for (var row in results) {
+                  Map<String, dynamic> notif = {};
+                  row.fields.forEach((k, v) => notif[k] = v?.toString() ?? '');
+                  notifs.add(notif);
+                }
+                return notifs;
+              }),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                if (!snapshot.hasData || snapshot.data!.isEmpty) {
                   return const Center(child: Text("No notifications yet.", style: TextStyle(color: Color(0xFF64748B))));
                 }
                 
-                var notifications = snapshot.data!.docs;
+                var notifications = snapshot.data!;
                 return ListView.builder(
                   shrinkWrap: true,
                   itemCount: notifications.length,
                   itemBuilder: (context, index) {
-                    var data = notifications[index].data() as Map<String, dynamic>;
+                    var data = notifications[index];
                     return ListTile(
                       leading: const Icon(Icons.info_outline, color: Color(0xFF3B82F6)),
                       title: Text(data['title'] ?? 'Alert', style: const TextStyle(fontWeight: FontWeight.bold)),

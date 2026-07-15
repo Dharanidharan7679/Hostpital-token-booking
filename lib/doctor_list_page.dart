@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'token_booking_page.dart';
 
 class DoctorListPage extends StatelessWidget {
@@ -46,19 +46,28 @@ class DoctorListPage extends StatelessWidget {
           fontWeight: FontWeight.w800,
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('doctors')
-            .where('department', isEqualTo: department)
-            .snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: DatabaseHelper.instance.database.then((db) async {
+          final results = await db.query(
+            'SELECT * FROM doctors WHERE department = ?',
+            [department]
+          );
+          List<Map<String, dynamic>> docs = [];
+          for (var row in results) {
+            Map<String, dynamic> doc = {};
+            row.fields.forEach((k, v) => doc[k] = v?.toString() ?? '');
+            docs.add(doc);
+          }
+          return docs;
+        }),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB)));
           }
 
           List<Map<String, dynamic>> doctorsList = [];
-          if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-            doctorsList = snapshot.data!.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
+          if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+            doctorsList = snapshot.data!;
           } else {
             // Fallback to dummy data so the app always looks professional
             doctorsList = _getDummyDoctors(department);

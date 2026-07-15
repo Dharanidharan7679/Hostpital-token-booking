@@ -1,6 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'database_helper.dart';
 import 'hospital_map_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -19,12 +19,21 @@ class _LoginPageState extends State<LoginPage> {
       final email = emailController.text.trim();
       final password = passwordController.text.trim();
 
-      // Firebase Auth login
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
+      if (email.isEmpty || password.isEmpty) {
+        throw Exception("Please enter both email and password.");
+      }
+
+      final db = await DatabaseHelper.instance.database;
+      final results = await db.query(
+        'SELECT * FROM users WHERE email = ? AND password = ?',
+        [email, password]
       );
 
+      if (results.isEmpty) {
+        throw Exception("Invalid email or password.");
+      }
+
+      // Successful login
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const HospitalMapPage()),
@@ -35,7 +44,7 @@ class _LoginPageState extends State<LoginPage> {
         context: context,
         builder: (_) => AlertDialog(
           title: const Text("Login Failed"),
-          content: const Text("Invalid email or password."),
+          content: Text(e.toString().replaceAll("Exception: ", "")),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),

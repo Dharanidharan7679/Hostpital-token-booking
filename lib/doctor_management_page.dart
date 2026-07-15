@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'dashboard_page.dart';
 
 class DoctorManagementPage extends StatefulWidget {
@@ -57,22 +57,27 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
                 final experience = experienceController.text.trim();
 
                 if (name.isNotEmpty && dept.isNotEmpty) {
+                  final db = await DatabaseHelper.instance.database;
+                  final String id = DateTime.now().millisecondsSinceEpoch.toString();
+                  final String createdAt = DateTime.now().toIso8601String();
+
                   // Add to doctors collection
-                  await FirebaseFirestore.instance.collection('doctors').add({
-                    'name': name,
-                    'department': dept,
-                    'degree': degree,
-                    'experience': experience,
-                    'createdAt': FieldValue.serverTimestamp(),
-                  });
+                  await db.query(
+                    'INSERT INTO doctors (id, name, department, degree, experience, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+                    [id, name, dept, degree, experience, createdAt]
+                  );
 
                   // Add to departments collection if it doesn't exist
-                  final deptRef = FirebaseFirestore.instance.collection('departments').doc(dept);
-                  final deptDoc = await deptRef.get();
-                  if (!deptDoc.exists) {
-                    await deptRef.set({'name': dept, 'createdAt': FieldValue.serverTimestamp()});
+                  final deptResults = await db.query('SELECT id FROM departments WHERE name = ?', [dept]);
+                  if (deptResults.isEmpty) {
+                    final String deptId = DateTime.now().millisecondsSinceEpoch.toString();
+                    await db.query(
+                      'INSERT INTO departments (id, name, createdAt) VALUES (?, ?, ?)',
+                      [deptId, dept, createdAt]
+                    );
                   }
 
+                  setState(() {}); // Refresh list
                   Navigator.pop(context);
                   nameController.clear();
                   deptController.clear();
@@ -105,23 +110,32 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
         ),
       ),
       drawer: const AdminDrawer(currentPage: "doctors"),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('doctors').snapshots(),
+      body: FutureBuilder<List<Map<String, dynamic>>>(
+        future: DatabaseHelper.instance.database.then((db) async {
+          final results = await db.query('SELECT * FROM doctors ORDER BY createdAt DESC');
+          List<Map<String, dynamic>> docs = [];
+          for (var row in results) {
+            Map<String, dynamic> doc = {};
+            row.fields.forEach((k, v) => doc[k] = v?.toString() ?? '');
+            docs.add(doc);
+          }
+          return docs;
+        }),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(child: Text("No doctors found.", style: TextStyle(color: Color(0xFF64748B), fontSize: 16)));
           }
 
-          var doctors = snapshot.data!.docs;
+          var doctors = snapshot.data!;
 
           return ListView.builder(
             itemCount: doctors.length,
             padding: const EdgeInsets.all(24),
             itemBuilder: (context, index) {
-              var data = doctors[index].data() as Map<String, dynamic>;
+              var data = doctors[index];
               return Container(
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
@@ -155,8 +169,10 @@ class _DoctorManagementPageState extends State<DoctorManagementPage> {
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                    onPressed: () {
-                      FirebaseFirestore.instance.collection('doctors').doc(doctors[index].id).delete();
+                    onPressed: () async {
+                      final db = await DatabaseHelper.instance.database;
+                      await db.query('DELETE FROM doctors WHERE id = ?', [data['id']]);
+                      setState(() {});
                     },
                   ),
                 ),

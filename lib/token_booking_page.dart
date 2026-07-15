@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'token_confirmation_page.dart';
 
 class TokenBookingPage extends StatefulWidget {
@@ -39,25 +39,25 @@ class _TokenBookingPageState extends State<TokenBookingPage> {
       _isLoadingCount = true;
     });
     try {
-      // Normalize date to start of day for accurate comparison
       DateTime startOfDay = DateTime(date.year, date.month, date.day);
       DateTime endOfDay = startOfDay.add(const Duration(days: 1));
 
       bool isToday = isSameDay(date, DateTime.now());
-      String collectionName = isToday ? "tokens" : "appointments";
+      String tableName = isToday ? "tokens" : "appointments";
 
-      Query query = FirebaseFirestore.instance
-          .collection(collectionName)
-          .where("bookedDate", isGreaterThanOrEqualTo: startOfDay)
-          .where("bookedDate", isLessThan: endOfDay);
+      final db = await DatabaseHelper.instance.database;
+      
+      String query = 'SELECT id FROM $tableName WHERE bookedDate >= ? AND bookedDate < ?';
+      List<dynamic> args = [startOfDay.toIso8601String(), endOfDay.toIso8601String()];
 
       if (widget.doctor != null) {
-        query = query.where("doctor", isEqualTo: widget.doctor!['name']);
+        query += ' AND doctor = ?';
+        args.add(widget.doctor!['name']);
       }
 
-      var snapshot = await query.get();
+      var results = await db.query(query, args);
       setState(() {
-        _bookedTokensCount = snapshot.docs.length;
+        _bookedTokensCount = results.length;
       });
     } catch (e) {
       // ignore
@@ -77,27 +77,39 @@ class _TokenBookingPageState extends State<TokenBookingPage> {
 
       try {
         bool isToday = isSameDay(_selectedDay, DateTime.now());
-        String collectionName = isToday ? "tokens" : "appointments";
+        String tableName = isToday ? "tokens" : "appointments";
+        
+        final db = await DatabaseHelper.instance.database;
+        final String id = DateTime.now().millisecondsSinceEpoch.toString();
+        final String createdAt = DateTime.now().toIso8601String();
 
-        await FirebaseFirestore.instance.collection(collectionName).add({
-          "name": _nameController.text,
-          "age": _ageController.text,
-          "regNo": _regNoController.text,
-          "mobile": _mobileController.text,
-          "bookedDate": _selectedDay,
-          "doctor": widget.doctor != null ? widget.doctor!['name'] : null,
-          "tokenNumber": _currentToken,
-          "type": isToday ? "Token (Walk-in)" : "Appointment (Scheduled)",
-          "createdAt": Timestamp.now(),
-        });
+        await db.query(
+          'INSERT INTO $tableName (id, name, age, regNo, mobile, bookedDate, doctor, tokenNumber, type, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            id,
+            _nameController.text,
+            _ageController.text,
+            _regNoController.text,
+            _mobileController.text,
+            _selectedDay.toIso8601String(),
+            widget.doctor != null ? widget.doctor!['name'] : null,
+            _currentToken,
+            isToday ? "Token (Walk-in)" : "Appointment (Scheduled)",
+            createdAt
+          ]
+        );
 
         // Add a notification
-        await FirebaseFirestore.instance.collection("notifications").add({
-          "title": isToday ? "Token Booked" : "Appointment Scheduled",
-          "message": "Your ${isToday ? 'token' : 'appointment'} for $_selectedDay with ${widget.doctor != null ? widget.doctor!['name'] : 'the hospital'} is confirmed.",
-          "patientName": _nameController.text,
-          "createdAt": Timestamp.now(),
-        });
+        final String notifId = DateTime.now().millisecondsSinceEpoch.toString();
+        await db.query(
+          'INSERT INTO notifications (id, title, message, createdAt) VALUES (?, ?, ?, ?)',
+          [
+            notifId,
+            isToday ? "Token Booked" : "Appointment Scheduled",
+            "Your ${isToday ? 'token' : 'appointment'} for ${_selectedDay.toLocal().toString().split(' ')[0]} with ${widget.doctor != null ? widget.doctor!['name'] : 'the hospital'} is confirmed.",
+            createdAt
+          ]
+        );
 
         Navigator.push(
           context,

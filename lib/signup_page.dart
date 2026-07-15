@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'database_helper.dart';
 import 'hospital_map_page.dart';
 
 class SignUpPage extends StatefulWidget {
@@ -22,20 +21,26 @@ class _SignUpPageState extends State<SignUpPage> {
       final email = emailController.text.trim();
       final password = passwordController.text.trim();
 
-      // Firebase Auth signup
-      UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      if (name.isEmpty || email.isEmpty || password.isEmpty) {
+        throw Exception("Please fill all fields.");
+      }
 
-      // Save user profile to 'users' collection
-      await FirebaseFirestore.instance.collection('users').doc(userCredential.user!.uid).set({
-        'uid': userCredential.user!.uid,
-        'name': name,
-        'email': email,
-        'role': 'Patient', // default role
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final db = await DatabaseHelper.instance.database;
+      
+      // Check if email already exists
+      final existingUsers = await db.query('SELECT id FROM users WHERE email = ?', [email]);
+      if (existingUsers.isNotEmpty) {
+        throw Exception("Email is already registered.");
+      }
+
+      final String id = DateTime.now().millisecondsSinceEpoch.toString();
+      final String createdAt = DateTime.now().toIso8601String();
+      
+      // Insert new user
+      await db.query(
+        'INSERT INTO users (id, name, email, password, role, createdAt) VALUES (?, ?, ?, ?, ?, ?)',
+        [id, name, email, password, 'Patient', createdAt]
+      );
 
       // Navigate to hospital list
       Navigator.pushReplacement(
@@ -48,7 +53,7 @@ class _SignUpPageState extends State<SignUpPage> {
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Signup Failed'),
-          content: Text(e.toString()),
+          content: Text(e.toString().replaceAll("Exception: ", "")),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),

@@ -1,138 +1,184 @@
-import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'package:mysql1/mysql1.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
-  static Database? _database;
+  MySqlConnection? _connection;
 
   DatabaseHelper._init();
 
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDB('hospital.db');
-    return _database!;
+  Future<MySqlConnection> get database async {
+    if (_connection != null) {
+      // Check if connection is still alive, if not reconnect (basic check, in a real app a connection pool is better)
+      return _connection!;
+    }
+    _connection = await _initDB();
+    return _connection!;
   }
 
-  Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
+  Future<MySqlConnection> _initDB() async {
+    final settings = ConnectionSettings(
+      host: 'localhost', // Use 10.0.2.2 if running on Android emulator connecting to host machine
+      port: 3306,
+      user: 'root', // Assuming root as not specified
+      password: 'Dharani@123',
+      db: 'hospital_db',
+    );
 
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    try {
+      final conn = await MySqlConnection.connect(settings);
+      await _createTablesIfNotExist(conn);
+      return conn;
+    } catch (e) {
+      print('Database connection failed: $e');
+      rethrow;
+    }
   }
 
-  Future _createDB(Database db, int version) async {
+  Future _createTablesIfNotExist(MySqlConnection db) async {
     // 1. users
-    await db.execute('''
-CREATE TABLE users (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL,
-  role TEXT NOT NULL,
-  createdAt TEXT NOT NULL
-)
-''');
+    await db.query('''
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL,
+        createdAt VARCHAR(255) NOT NULL
+      )
+    ''');
 
     // 2. departments
-    await db.execute('''
-CREATE TABLE departments (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  createdAt TEXT NOT NULL
-)
-''');
+    await db.query('''
+      CREATE TABLE IF NOT EXISTS departments (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        createdAt VARCHAR(255) NOT NULL
+      )
+    ''');
 
     // 3. doctors
-    await db.execute('''
-CREATE TABLE doctors (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  department TEXT NOT NULL,
-  degree TEXT NOT NULL,
-  experience TEXT NOT NULL,
-  createdAt TEXT NOT NULL
-)
-''');
+    await db.query('''
+      CREATE TABLE IF NOT EXISTS doctors (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        department VARCHAR(255) NOT NULL,
+        degree VARCHAR(255) NOT NULL,
+        experience VARCHAR(255) NOT NULL,
+        createdAt VARCHAR(255) NOT NULL
+      )
+    ''');
 
     // 4. tokens
-    await db.execute('''
-CREATE TABLE tokens (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  age TEXT NOT NULL,
-  regNo TEXT NOT NULL,
-  mobile TEXT NOT NULL,
-  bookedDate TEXT NOT NULL,
-  status TEXT NOT NULL
-)
-''');
+    await db.query('''
+      CREATE TABLE IF NOT EXISTS tokens (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        age VARCHAR(50) NOT NULL,
+        regNo VARCHAR(255) NOT NULL,
+        mobile VARCHAR(50) NOT NULL,
+        bookedDate VARCHAR(255) NOT NULL,
+        status VARCHAR(50),
+        doctor VARCHAR(255),
+        tokenNumber INT,
+        type VARCHAR(50),
+        createdAt VARCHAR(255)
+      )
+    ''');
 
     // 5. appointments
-    await db.execute('''
-CREATE TABLE appointments (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  age TEXT NOT NULL,
-  regNo TEXT NOT NULL,
-  mobile TEXT NOT NULL,
-  bookedDate TEXT NOT NULL,
-  doctor TEXT NOT NULL
-)
-''');
+    await db.query('''
+      CREATE TABLE IF NOT EXISTS appointments (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        age VARCHAR(50) NOT NULL,
+        regNo VARCHAR(255) NOT NULL,
+        mobile VARCHAR(50) NOT NULL,
+        bookedDate VARCHAR(255) NOT NULL,
+        doctor VARCHAR(255),
+        tokenNumber INT,
+        type VARCHAR(50),
+        createdAt VARCHAR(255)
+      )
+    ''');
 
     // 6. patients
-    await db.execute('''
-CREATE TABLE patients (
-  regNo TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  mobile TEXT NOT NULL,
-  age TEXT NOT NULL,
-  bloodGroup TEXT,
-  allergies TEXT,
-  pastSurgeries TEXT
-)
-''');
+    await db.query('''
+      CREATE TABLE IF NOT EXISTS patients (
+        regNo VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        mobile VARCHAR(50) NOT NULL,
+        age VARCHAR(50) NOT NULL,
+        bloodGroup VARCHAR(50),
+        allergies TEXT,
+        pastSurgeries TEXT
+      )
+    ''');
 
     // 7. patient_reports
-    await db.execute('''
-CREATE TABLE patient_reports (
-  id TEXT PRIMARY KEY,
-  regNo TEXT NOT NULL,
-  reportType TEXT NOT NULL,
-  notes TEXT NOT NULL,
-  createdAt TEXT NOT NULL
-)
-''');
+    await db.query('''
+      CREATE TABLE IF NOT EXISTS patient_reports (
+        id VARCHAR(255) PRIMARY KEY,
+        regNo VARCHAR(255) NOT NULL,
+        reportType VARCHAR(255) NOT NULL,
+        notes TEXT NOT NULL,
+        createdAt VARCHAR(255) NOT NULL
+      )
+    ''');
 
     // 8. notifications
-    await db.execute('''
-CREATE TABLE notifications (
-  id TEXT PRIMARY KEY,
-  title TEXT NOT NULL,
-  message TEXT NOT NULL,
-  createdAt TEXT NOT NULL
-)
-''');
+    await db.query('''
+      CREATE TABLE IF NOT EXISTS notifications (
+        id VARCHAR(255) PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        message TEXT NOT NULL,
+        createdAt VARCHAR(255) NOT NULL
+      )
+    ''');
   }
 
   Future<List<String>> getAllTableNames() async {
     final db = await instance.database;
-    final result = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'");
-    return result.map((e) => e['name'] as String).toList();
+    final results = await db.query("SHOW TABLES");
+    List<String> tableNames = [];
+    for (var row in results) {
+      tableNames.add(row[0].toString());
+    }
+    return tableNames;
   }
 
   Future<int> getTableRowCount(String tableName) async {
     final db = await instance.database;
-    final result = await db.rawQuery('SELECT COUNT(*) FROM $tableName');
-    return Sqflite.firstIntValue(result) ?? 0;
+    final results = await db.query('SELECT COUNT(*) FROM $tableName');
+    for (var row in results) {
+      return int.tryParse(row[0].toString()) ?? 0;
+    }
+    return 0;
   }
 
   Future<List<Map<String, dynamic>>> getTableData(String tableName) async {
     final db = await instance.database;
-    return await db.query(tableName);
+    final results = await db.query('SELECT * FROM $tableName');
+    
+    List<Map<String, dynamic>> data = [];
+    for (var row in results) {
+      Map<String, dynamic> rowMap = {};
+      row.fields.forEach((key, value) {
+        // Convert Blob to String if necessary, else just pass value
+        if (value is Blob) {
+           rowMap[key] = value.toString();
+        } else {
+           rowMap[key] = value;
+        }
+      });
+      data.add(rowMap);
+    }
+    return data;
   }
 
   Future close() async {
-    final db = await instance.database;
-    db.close();
+    if (_connection != null) {
+      await _connection!.close();
+      _connection = null;
+    }
   }
 }
